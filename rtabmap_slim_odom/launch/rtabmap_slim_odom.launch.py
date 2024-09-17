@@ -59,6 +59,8 @@ def launch_setup(context, *args, **kwargs):
         #These arguments should not be modified directly, see referred topics without "_relay" suffix above
         DeclareLaunchArgument('rgb_topic_relay',      default_value=ConditionalText(''.join([LaunchConfiguration('rgb_topic').perform(context), "_relay"]), ''.join(LaunchConfiguration('rgb_topic').perform(context)), LaunchConfiguration('compressed').perform(context)), description='Should not be modified manually!'),
         DeclareLaunchArgument('depth_topic_relay',      default_value=ConditionalText(''.join([LaunchConfiguration('depth_topic').perform(context), "_relay"]), ''.join(LaunchConfiguration('depth_topic').perform(context)), LaunchConfiguration('compressed').perform(context)), description='Should not be modified manually!'),
+        DeclareLaunchArgument('left_image_topic_relay',      default_value=ConditionalText(''.join([LaunchConfiguration('left_image_topic').perform(context), "_relay"]), ''.join(LaunchConfiguration('left_image_topic').perform(context)), LaunchConfiguration('compressed').perform(context)), description='Should not be modified manually!'),
+        DeclareLaunchArgument('right_image_topic_relay',      default_value=ConditionalText(''.join([LaunchConfiguration('right_image_topic').perform(context), "_relay"]), ''.join(LaunchConfiguration('right_image_topic').perform(context)), LaunchConfiguration('compressed').perform(context)), description='Should not be modified manually!'),
         DeclareLaunchArgument('rgbd_topic_relay',      default_value=ConditionalText(''.join(LaunchConfiguration('rgbd_topic').perform(context)), ''.join([LaunchConfiguration('rgbd_topic').perform(context), "_relay"]), LaunchConfiguration('rgbd_sync').perform(context)), description='Should not be modified manually!'),
     
         SetParameter(name='use_sim_time', value=LaunchConfiguration('use_sim_time')),
@@ -98,7 +100,39 @@ def launch_setup(context, *args, **kwargs):
                 ("rgb/camera_info", LaunchConfiguration('camera_info_topic')),
                 ("rgbd_image", LaunchConfiguration('rgbd_topic_relay'))],
             namespace=LaunchConfiguration('namespace')),
-            
+         # Relays Stereo
+        Node(
+            package='image_transport', executable='republish', name='republish_left',
+            condition=IfCondition(PythonExpression(["'", LaunchConfiguration('stereo'), "' == 'true' and ('", LaunchConfiguration('subscribe_rgbd'), "' != 'true' or '", LaunchConfiguration('rgbd_sync'),"'=='true') and '", LaunchConfiguration('compressed'), "' == 'true'"])),
+            remappings=[
+                (['in/', LaunchConfiguration('rgb_image_transport')], [LaunchConfiguration('left_image_topic'), '/', LaunchConfiguration('rgb_image_transport')]),
+                ('out', LaunchConfiguration('left_image_topic_relay'))], 
+            arguments=[LaunchConfiguration('rgb_image_transport'), 'raw'],
+            namespace=LaunchConfiguration('namespace')),
+        Node(
+            package='image_transport', executable='republish', name='republish_right',
+            condition=IfCondition(PythonExpression(["'", LaunchConfiguration('stereo'), "' == 'true' and ('", LaunchConfiguration('subscribe_rgbd'), "' != 'true' or '", LaunchConfiguration('rgbd_sync'),"'=='true') and '", LaunchConfiguration('compressed'), "' == 'true'"])),
+            remappings=[
+                (['in/', LaunchConfiguration('rgb_image_transport')], [LaunchConfiguration('right_image_topic'), '/', LaunchConfiguration('rgb_image_transport')]),
+                ('out', LaunchConfiguration('right_image_topic_relay'))], 
+            arguments=[LaunchConfiguration('rgb_image_transport'), 'raw'],
+            namespace=LaunchConfiguration('namespace')),
+        Node(
+            package='rtabmap_sync', executable='stereo_sync', name="stereo_sync", output="screen",
+            condition=IfCondition(PythonExpression(["'", LaunchConfiguration('stereo'), "' == 'true' and '", LaunchConfiguration('rgbd_sync'), "' == 'true'"])),
+            parameters=[{
+                "approx_sync": LaunchConfiguration('approx_rgbd_sync'),
+                "approx_sync_max_interval": LaunchConfiguration('approx_sync_max_interval'),
+                "queue_size": LaunchConfiguration('queue_size'),
+                "qos": LaunchConfiguration('qos_image'),
+                "qos_camera_info": LaunchConfiguration('qos_camera_info')}],
+            remappings=[
+                ("left/image_rect", LaunchConfiguration('left_image_topic_relay')),
+                ("right/image_rect", LaunchConfiguration('right_image_topic_relay')),
+                ("left/camera_info", LaunchConfiguration('left_camera_info_topic')),
+                ("right/camera_info", LaunchConfiguration('right_camera_info_topic')),
+                ("rgbd_image", LaunchConfiguration('rgbd_topic_relay'))],
+            namespace=LaunchConfiguration('namespace')),           
         # Relay rgbd_image
         Node(
             package='rtabmap_util', executable='rgbd_relay', name="rgbd_relay", output="screen",
@@ -152,7 +186,37 @@ def launch_setup(context, *args, **kwargs):
             arguments=[LaunchConfiguration("args"), LaunchConfiguration("odom_args"), "--ros-args", "--log-level", [LaunchConfiguration('namespace'), '.rgbd_odometry:=', LaunchConfiguration('odom_log_level')], "--log-level", ['rgbd_odometry:=', LaunchConfiguration('odom_log_level')]],
             prefix=LaunchConfiguration('launch_prefix'),
             namespace=LaunchConfiguration('namespace')),
-
+        # Stereo odometry
+        Node(
+            package='rtabmap_odom', executable='stereo_odometry', name="stereo_odometry", output="screen",
+            condition=IfCondition(PythonExpression(["'", LaunchConfiguration('icp_odometry'), "' != 'true' and '", LaunchConfiguration('visual_odometry'), "' == 'true' and '", LaunchConfiguration('stereo'), "' == 'true'"])),
+            parameters=[{
+                "frame_id": LaunchConfiguration('frame_id'),
+                "odom_frame_id": LaunchConfiguration('vo_frame_id'),
+                "publish_tf": LaunchConfiguration('publish_tf_odom'),
+                "ground_truth_frame_id": LaunchConfiguration('ground_truth_frame_id').perform(context),
+                "ground_truth_base_frame_id": LaunchConfiguration('ground_truth_base_frame_id').perform(context),
+                "wait_for_transform": LaunchConfiguration('wait_for_transform'),
+                "approx_sync": LaunchConfiguration('approx_sync'),
+                "approx_sync_max_interval": LaunchConfiguration('approx_sync_max_interval'),
+                "config_path": LaunchConfiguration('cfg').perform(context),
+                "queue_size": LaunchConfiguration('queue_size'),
+                "qos": LaunchConfiguration('qos_image'),
+                "qos_camera_info": LaunchConfiguration('qos_camera_info'),
+                "subscribe_rgbd": LaunchConfiguration('subscribe_rgbd'),
+                "guess_frame_id": LaunchConfiguration('odom_guess_frame_id').perform(context),
+                "guess_min_translation": LaunchConfiguration('odom_guess_min_translation'),
+                "guess_min_rotation": LaunchConfiguration('odom_guess_min_rotation')}],
+            remappings=[
+                ("left/image_rect", LaunchConfiguration('left_image_topic_relay')),
+                ("right/image_rect", LaunchConfiguration('right_image_topic_relay')),
+                ("left/camera_info", LaunchConfiguration('left_camera_info_topic')),
+                ("right/camera_info", LaunchConfiguration('right_camera_info_topic')),
+                ("rgbd_image", LaunchConfiguration('rgbd_topic_relay')),
+                ("odom", LaunchConfiguration('odom_topic'))],
+            arguments=[LaunchConfiguration("args"), LaunchConfiguration("odom_args")],
+            prefix=LaunchConfiguration('launch_prefix'),
+            namespace=LaunchConfiguration('namespace')),
         Node(
             package='rtabmap_viz', executable='rtabmap_viz', name="rtabmap_viz", output='screen',
             parameters=[{
@@ -179,6 +243,10 @@ def launch_setup(context, *args, **kwargs):
                 ("depth/image", LaunchConfiguration('depth_topic_relay')),
                 ("rgb/camera_info", LaunchConfiguration('camera_info_topic')),
                 ("rgbd_image", LaunchConfiguration('rgbd_topic_relay')),
+                ("left/image_rect", LaunchConfiguration('left_image_topic_relay')),
+                ("right/image_rect", LaunchConfiguration('right_image_topic_relay')),
+                ("left/camera_info", LaunchConfiguration('left_camera_info_topic')),
+                ("right/camera_info", LaunchConfiguration('right_camera_info_topic')),
                 ("odom", LaunchConfiguration('odom_topic'))],
             condition=IfCondition(LaunchConfiguration("rtabmap_viz")),
             arguments=[LaunchConfiguration("gui_cfg"), "--ros-args", "--log-level", [LaunchConfiguration('namespace'), '.rtabmap_viz:=', LaunchConfiguration('log_level')], "--log-level", ['rtabmap_viz:=', LaunchConfiguration('log_level')]],
@@ -198,6 +266,10 @@ def launch_setup(context, *args, **kwargs):
                 "approx_sync_max_interval": LaunchConfiguration('approx_sync_max_interval')
             }],
             remappings=[
+                ('left/image', LaunchConfiguration('left_image_topic_relay')),
+                ('right/image', LaunchConfiguration('right_image_topic_relay')),
+                ('left/camera_info', LaunchConfiguration('left_camera_info_topic')),
+                ('right/camera_info', LaunchConfiguration('right_camera_info_topic')),
                 ('rgb/image', LaunchConfiguration('rgb_topic_relay')),
                 ('depth/image', LaunchConfiguration('depth_topic_relay')),
                 ('rgb/camera_info', LaunchConfiguration('camera_info_topic')),
@@ -234,7 +306,6 @@ def generate_launch_description():
         DeclareLaunchArgument('map_topic',      default_value='map',                description='Map topic name.'),
         DeclareLaunchArgument('publish_tf_map', default_value='true',               description='Publish TF between map and odomerty.'),
         DeclareLaunchArgument('namespace',      default_value='rtabmap',            description=''),
-        #DeclareLaunchArgument('database_path',  default_value='~/.ros/rtabmap.db',  description='Where is the map saved/loaded.'),
         DeclareLaunchArgument('topic_queue_size', default_value='1',                description='Queue size of individual topic subscribers.'),
         DeclareLaunchArgument('queue_size',     default_value='10',                 description='Backward compatibility, use "sync_queue_size" instead.'),
         DeclareLaunchArgument('qos',            default_value='1',                  description='General QoS used for sensor input data: 0=system default, 1=Reliable, 2=Best Effort.'),
@@ -257,6 +328,13 @@ def generate_launch_description():
         DeclareLaunchArgument('rgb_topic',           default_value='/camera/rgb/image_rect_color',       description=''),
         DeclareLaunchArgument('depth_topic',         default_value='/camera/depth_registered/image_raw', description=''),
         DeclareLaunchArgument('camera_info_topic',   default_value='/camera/rgb/camera_info',            description=''),
+
+        # Stereo Related topics
+        DeclareLaunchArgument('stereo_namespace',        default_value='/stereo_camera', description=''),
+        DeclareLaunchArgument('left_image_topic',        default_value=[LaunchConfiguration('stereo_namespace'), '/left/image_rect_color'], description=''),
+        DeclareLaunchArgument('right_image_topic',       default_value=[LaunchConfiguration('stereo_namespace'), '/right/image_rect'], description='Use grayscale image for efficiency'),
+        DeclareLaunchArgument('left_camera_info_topic',  default_value=[LaunchConfiguration('stereo_namespace'), '/left/camera_info'], description=''),
+        DeclareLaunchArgument('right_camera_info_topic', default_value=[LaunchConfiguration('stereo_namespace'), '/right/camera_info'], description=''),
 
         # Use Pre-sync RGBDImage format
         DeclareLaunchArgument('rgbd_sync',        default_value='false',      description='Pre-sync rgb_topic, depth_topic, camera_info_topic.'),
