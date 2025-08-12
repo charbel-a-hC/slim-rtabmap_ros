@@ -1,0 +1,9 @@
+/**:
+  ros__parameters:
+    approx_sync: true
+    approx_sync_max_interval: 0.01
+    topic_queue_size: 10
+    sync_queue_size: 10
+    qos: 2
+    qos_camera_info: 1
+    depth_scale: 1.0
